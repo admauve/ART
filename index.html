@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trash</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Pretendard', sans-serif; }
+        .feed-card {
+            aspect-ratio: 9 / 13;
+        }
+    </style>
+</head>
+<body class="bg-black text-white min-h-screen flex flex-col selection:bg-pink-500 selection:text-white">
+
+    <!-- Header -->
+    <header class="w-full border-b border-neutral-800 bg-black/95 backdrop-blur sticky top-0 z-30 px-4 h-14 flex items-center justify-between">
+        <div class="flex items-center space-x-2">
+            <i class="fa-brands fa-instagram text-xl"></i>
+            <span class="font-bold tracking-tight text-sm">POOR IMAGE</span>
+        </div>
+    </header>
+
+    <!-- Main Grid Container (Instagram Algorithm Style - 15개의 직사각형 칸) -->
+    <main class="max-w-4xl mx-auto px-2 py-4 flex-grow w-full">
+        <div class="grid grid-cols-3 gap-1.5 sm:gap-2" id="gridContainer">
+            <!-- 15 Slots will be injected dynamically via JS -->
+        </div>
+    </main>
+
+    <!-- Footer Guide -->
+    <footer class="w-full border-t border-neutral-800 bg-neutral-950 py-4 text-center text-xs text-neutral-500"></footer>
+
+    <!-- Instagram Detail Viewer Modal (화면 크게 확대 뷰어) -->
+    <div id="detailModal" class="fixed inset-0 bg-black/95 backdrop-blur-md z-50 flex items-center justify-center p-2 hidden">
+        <div class="relative w-full h-full flex flex-col items-center justify-center p-2">
+            <!-- 닫기 버튼 -->
+            <button type="button" onclick="closeDetailModal()" class="absolute top-4 right-4 text-white text-2xl p-3 z-10 hover:text-neutral-400 transition">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+
+            <!-- 확대된 이미지 영역 (터치하면 3단계로 화질 낮아지고 그리드로 복귀) -->
+            <div id="detailImageWrapper" class="relative w-full h-full flex items-center justify-center cursor-pointer overflow-hidden bg-black">
+                <img id="detailImg" src="" class="max-w-full max-h-full w-auto h-auto object-contain select-none pointer-events-none" alt="Detail View">
+            </div>
+        </div>
+    </div>
+
+    <!-- Hidden File Input -->
+    <input type="file" id="globalFileInput" accept="image/*" style="display: none;">
+
+    <script>
+        // 15개 슬롯 상태 관리 데이터 (clickCount: 0 ~ 3)
+        const slotsData = Array.from({ length: 15 }, (_, i) => ({
+            id: i,
+            originalImage: null,
+            clickCount: 0,       // 0: 원본, 1: 1단계 저하, 2: 2단계 저하, 3: 최종 최저 화질
+            dataUrl: null
+        }));
+
+        let activeSlotId = null;
+        const gridContainer = document.getElementById('gridContainer');
+        const globalFileInput = document.getElementById('globalFileInput');
+        
+        const detailModal = document.getElementById('detailModal');
+        const detailImg = document.getElementById('detailImg');
+        const detailImageWrapper = document.getElementById('detailImageWrapper');
+
+        // 15개 슬롯 그리드 렌더링 함수
+        function renderGrid() {
+            gridContainer.innerHTML = '';
+            slotsData.forEach((slot) => {
+                const card = document.createElement('div');
+                card.className = "feed-card bg-neutral-900 overflow-hidden relative border border-neutral-800/80 flex items-center justify-center cursor-pointer group transition hover:border-neutral-700";
+                
+                if (slot.dataUrl) {
+                    card.innerHTML = `
+                        <img src="${slot.dataUrl}" class="w-full h-full object-cover select-none pointer-events-none" alt="Slot ${slot.id+1}">
+                    `;
+                    card.onclick = () => openDetailModal(slot.id);
+                } else {
+                    card.innerHTML = `
+                        <div class="flex flex-col items-center justify-center text-neutral-500 group-hover:text-white transition pointer-events-none">
+                            <span class="text-sm font-mono font-bold">${slot.id + 1}</span>
+                        </div>
+                    `;
+                    card.onclick = () => triggerUpload(slot.id);
+                }
+                gridContainer.appendChild(card);
+            });
+        }
+
+        // 업로드 창 열기
+        function triggerUpload(slotId) {
+            activeSlotId = slotId;
+            globalFileInput.value = ''; 
+            globalFileInput.click();
+        }
+
+        // 파일 선택 이벤트 감지
+        globalFileInput.onchange = function(e) {
+            const file = e.target.files[0];
+            if (!file || activeSlotId === null) return;
+
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const img = new Image();
+                img.onload = function() {
+                    slotsData[activeSlotId].originalImage = img;
+                    slotsData[activeSlotId].clickCount = 0; // 업로드 시 초기화
+                    updateSlotImage(activeSlotId);
+                    renderGrid();
+
+                    // 업로드 직후 크게 확대된 상세 뷰어로 진입
+                    openDetailModal(activeSlotId);
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        };
+
+        // 상세 확대 뷰어 열기
+        function openDetailModal(slotId) {
+            activeSlotId = slotId;
+            const slot = slotsData[slotId];
+            if (!slot.originalImage) return;
+
+            updateDetailView();
+            detailModal.classList.remove('hidden');
+        }
+
+        function closeDetailModal() {
+            detailModal.classList.add('hidden');
+            activeSlotId = null;
+        }
+
+        // 확대된 상세 뷰어 내부에서 이미지 터치 시 (총 3번 클릭으로 최저 화질 도달)
+        detailImageWrapper.onclick = function() {
+            if (activeSlotId === null) return;
+            const slot = slotsData[activeSlotId];
+
+            if (slot.clickCount < 3) {
+                slot.clickCount++; // 총 3단계 반복
+                updateSlotImage(activeSlotId);
+                renderGrid(); 
+            }
+
+            closeDetailModal();
+        };
+
+        // 상세 뷰어 화면 요소 업데이트
+        function updateDetailView() {
+            if (activeSlotId === null) return;
+            const slot = slotsData[activeSlotId];
+            detailImg.src = slot.dataUrl;
+        }
+
+        // 캔버스를 이용한 JPEG 품질 압축 적용 (3단계 주기 반영)
+        function updateSlotImage(slotId) {
+            const slot = slotsData[slotId];
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+
+            canvas.width = slot.originalImage.width;
+            canvas.height = slot.originalImage.height;
+            ctx.drawImage(slot.originalImage, 0, 0);
+
+            // 0회: 0.9 (고화질), 1회: 0.4, 2회: 0.15, 3회: 0.03 (최저 화질)
+            let quality = 0.9;
+            if (slot.clickCount === 1) quality = 0.4;
+            else if (slot.clickCount === 2) quality = 0.15;
+            else if (slot.clickCount >= 3) quality = 0.03;
+
+            slot.dataUrl = canvas.toDataURL('image/jpeg', quality);
+        }
+
+        // 초기 실행
+        window.addEventListener('DOMContentLoaded', () => {
+            renderGrid();
+        });
+    </script>
+</body>
+</html>
